@@ -68,11 +68,11 @@ struct RenderContext {
     surface: Surface<'static>,
     format: TextureFormat,
     render_pipeline: RenderPipeline,
-    num_instances: u32,
-    base_storage_buffer: Buffer,
-    extra_storage_buffer: Buffer,
-    extra_storage_values: Vec<Extra>,
-    scaling_units: Vec<f32>,
+    // num_instances: u32,
+    // base_storage_buffer: Buffer,
+    // extra_storage_buffer: Buffer,
+    // extra_storage_values: Vec<Extra>,
+    // scaling_units: Vec<f32>,
     bind_group: BindGroup,
     window: Arc<Window>,
 }
@@ -95,7 +95,13 @@ impl RenderContext {
             .block_on()
             .unwrap();
 
-        let format = surface.get_capabilities(&adapter).formats[0];
+        let capabilities = surface.get_capabilities(&adapter);
+        let format = capabilities
+            .formats
+            .iter()
+            .find(|f| f.is_srgb())
+            .copied()
+            .unwrap_or(capabilities.formats[0]);
 
         let shader = device.create_shader_module(include_wgsl!("shader.wgsl"));
 
@@ -133,48 +139,107 @@ impl RenderContext {
             cache: None,
         });
 
-        let num_instances = 100;
+        // let num_instances = 100;
+        //
+        // let base_unit_size = std::mem::size_of::<Base>();
+        // let base_storage_buffer_size = base_unit_size * num_instances as usize;
+        // let base_storage_buffer = device.create_buffer(&BufferDescriptor {
+        //     label: Some(&format!("base uniform buffer for obj")),
+        //     size: base_storage_buffer_size as BufferAddress,
+        //     usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
+        //     mapped_at_creation: false,
+        // });
+        //
+        // let extra_unit_size = std::mem::size_of::<Extra>();
+        // let extra_storage_buffer_size = extra_unit_size * num_instances as usize;
+        // let extra_storage_buffer = device.create_buffer(&BufferDescriptor {
+        //     label: Some(&format!("extra uniform buffer for obj")),
+        //     size: extra_storage_buffer_size as BufferAddress,
+        //     usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
+        //     mapped_at_creation: false,
+        // });
+        //
+        // let mut bases = Vec::with_capacity(num_instances as usize);
+        // let mut scaling_units = Vec::with_capacity(num_instances as usize);
+        // for i in 0..num_instances as usize {
+        //     let base = Base {
+        //         color: [rand(0.0, 1.0), rand(0.0, 1.0), rand(0.0, 1.0), 1.0],
+        //         offset: [rand(-0.9, 0.9), rand(-0.9, 0.9)],
+        //     };
+        //     bases.push(base);
+        //     scaling_units.push(rand(0.2, 0.5));
+        // }
+        // queue.write_buffer(&base_storage_buffer, 0, bytemuck::cast_slice(&bases));
+        //
+        // let extra_storage_values = Vec::with_capacity(num_instances as usize);
+        //
+        // let vertices = create_circle_vertices(0.5, 24, 0.25, 0.0, PI * 2.0);
+        // let vertex_storage_buffer = device.create_buffer(&BufferDescriptor {
+        //     label: Some("vertex storage buffer"),
+        //     size: (std::mem::size_of::<Vertex>() * vertices.len()) as BufferAddress,
+        //     usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
+        //     mapped_at_creation: false,
+        // });
+        // queue.write_buffer(&vertex_storage_buffer, 0, bytemuck::cast_slice(&vertices));
 
-        let base_unit_size = std::mem::size_of::<Base>();
-        let base_storage_buffer_size = base_unit_size * num_instances as usize;
-        let base_storage_buffer = device.create_buffer(&BufferDescriptor {
-            label: Some(&format!("base uniform buffer for obj")),
-            size: base_storage_buffer_size as BufferAddress,
-            usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
-            mapped_at_creation: false,
+        // let dimensions = (5, 7);
+        // let red = [255, 0, 0, 0];
+        // let yellow = [255, 255, 0, 255];
+        // let blue = [0, 0, 255, 255];
+        // let texture_data = [
+        //     blue, red, red, red, red,
+        //     red, yellow, yellow, yellow, red,
+        //     red, yellow, red, red, red,
+        //     red, yellow, yellow, red, red,
+        //     red, yellow, red, red, red,
+        //     red, yellow, red, red, red,
+        //     red, red, red, red, red,
+        // ];
+
+        let image_bytes = include_bytes!("../assets/fury.png");
+        let image = image::load_from_memory(image_bytes).unwrap();
+        let rgba = image.to_rgba8();
+
+        use image::GenericImageView;
+        let dimensions = image.dimensions();
+
+        let texture = device.create_texture(&TextureDescriptor {
+            label: Some("texture"),
+            size: Extent3d {
+                width: dimensions.0,
+                height: dimensions.1,
+                depth_or_array_layers: 1,
+            },
+            format: TextureFormat::Rgba8UnormSrgb,
+            usage: TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST,
+            dimension: TextureDimension::D2,
+            mip_level_count: 1,
+            sample_count: 1,
+            view_formats: &[],
         });
+        let texture_view = texture.create_view(&TextureViewDescriptor::default());
 
-        let extra_unit_size = std::mem::size_of::<Extra>();
-        let extra_storage_buffer_size = extra_unit_size * num_instances as usize;
-        let extra_storage_buffer = device.create_buffer(&BufferDescriptor {
-            label: Some(&format!("extra uniform buffer for obj")),
-            size: extra_storage_buffer_size as BufferAddress,
-            usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
+        queue.write_texture(
+            TexelCopyTextureInfo {
+                texture: &texture,
+                mip_level: 0,
+                origin: Origin3d::ZERO,
+                aspect: TextureAspect::All,
+            },
+            &rgba,
+            TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(dimensions.0 * 4),
+                rows_per_image: Some(dimensions.1),
+            },
+            Extent3d {
+                width: dimensions.0,
+                height: dimensions.1,
+                depth_or_array_layers: 1,
+            },
+        );
 
-        let mut bases = Vec::with_capacity(num_instances as usize);
-        let mut scaling_units = Vec::with_capacity(num_instances as usize);
-        for i in 0..num_instances as usize {
-            let base = Base {
-                color: [rand(0.0, 1.0), rand(0.0, 1.0), rand(0.0, 1.0), 1.0],
-                offset: [rand(-0.9, 0.9), rand(-0.9, 0.9)],
-            };
-            bases.push(base);
-            scaling_units.push(rand(0.2, 0.5));
-        }
-        queue.write_buffer(&base_storage_buffer, 0, bytemuck::cast_slice(&bases));
-
-        let extra_storage_values = Vec::with_capacity(num_instances as usize);
-
-        let vertices = create_circle_vertices(0.5, 24, 0.25, 0.0, PI * 2.0);
-        let vertex_storage_buffer = device.create_buffer(&BufferDescriptor {
-            label: Some("vertex storage buffer"),
-            size: (std::mem::size_of::<Vertex>() * vertices.len()) as BufferAddress,
-            usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
-        queue.write_buffer(&vertex_storage_buffer, 0, bytemuck::cast_slice(&vertices));
+        let sampler = device.create_sampler(&SamplerDescriptor::default());
 
         let bind_group = device.create_bind_group(&BindGroupDescriptor {
             label: Some(&format!("bind group")),
@@ -182,15 +247,11 @@ impl RenderContext {
             entries: &[
                 BindGroupEntry {
                     binding: 0,
-                    resource: base_storage_buffer.as_entire_binding(),
+                    resource: BindingResource::Sampler(&sampler),
                 },
                 BindGroupEntry {
                     binding: 1,
-                    resource: extra_storage_buffer.as_entire_binding(),
-                },
-                BindGroupEntry {
-                    binding: 2,
-                    resource: vertex_storage_buffer.as_entire_binding(),
+                    resource: BindingResource::TextureView(&texture_view),
                 },
             ],
         });
@@ -201,11 +262,11 @@ impl RenderContext {
             surface,
             format,
             render_pipeline,
-            num_instances,
-            base_storage_buffer,
-            extra_storage_buffer,
-            extra_storage_values,
-            scaling_units,
+            // num_instances,
+            // base_storage_buffer,
+            // extra_storage_buffer,
+            // extra_storage_values,
+            // scaling_units,
             bind_group,
             window,
         }
@@ -259,19 +320,20 @@ impl RenderContext {
         });
         render_pass.set_pipeline(&self.render_pipeline);
 
-        let size = self.window.inner_size();
-        let aspect = size.width / size.height;
-        let extras: Vec<_> = self
-            .scaling_units
-            .iter()
-            .map(|scale| Extra {
-                scale: [scale / aspect as f32, *scale],
-            })
-            .collect();
-        self.queue
-            .write_buffer(&self.extra_storage_buffer, 0, bytemuck::cast_slice(&extras));
+        // let size = self.window.inner_size();
+        // let aspect = size.width / size.height;
+        // let extras: Vec<_> = self
+        //     .scaling_units
+        //     .iter()
+        //     .map(|scale| Extra {
+        //         scale: [scale / aspect as f32, *scale],
+        //     })
+        //     .collect();
+        // self.queue
+        //     .write_buffer(&self.extra_storage_buffer, 0, bytemuck::cast_slice(&extras));
+
         render_pass.set_bind_group(0, &self.bind_group, &[]);
-        render_pass.draw(0..24 * 3 * 2, 0..self.num_instances);
+        render_pass.draw(0..6, 0..1);
 
         drop(render_pass);
 
